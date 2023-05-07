@@ -1,0 +1,653 @@
+
+<#
+.SYNOPSIS
+This script allows users to manage software and system updates on a Windows computer through a simple menu-based interface.
+
+.DESCRIPTION
+This PowerShell script provides options to change the computer name, run Windows Update, install or uninstall software using Chocolatey, and restart the computer. It offers a user-friendly experience by presenting a list of available options and guiding the user through the process.
+
+.PARAMETER Show-Options
+This function displays the available options to the user, including changing the computer name, running Windows Update, installing or uninstalling software, and restarting the computer.
+
+.NOTES
+
+This script requires Chocolatey package manager to be installed on the system.
+Users must run this script with administrator privileges to perform certain tasks, such as changing the computer name or installing/uninstalling software.
+Before running this script, you may need to set the PowerShell execution policy to allow running custom scripts. To do so, run the following command in an elevated PowerShell prompt: "Set-ExecutionPolicy RemoteSigned" (without quotes).
+
+.EXAMPLE
+PS C:> .\Eyad.ps1
+This command runs the script and displays the available options to the user.
+
+.EXAMPLE
+PS C:> .\Eyad.ps1 -Option 2
+This command runs the script and automatically selects the Windows Update option.
+
+.EXAMPLE
+PS C:> .\Eyad.ps1 -Option 3 -Software "Google Chrome"
+This command runs the script and automatically selects the software installation option, then installs Google Chrome using Chocolatey.
+
+#>
+
+# Function to display the available options to the user
+function Show-Options {
+    Write-Output "Available options:"
+    Write-Output "1 - Change computer name"
+    Write-Output "2 - Run Windows Update"
+    Write-Output "3 - Install/Uninstall software"
+    Write-Output "4 - Restart computer"
+}
+
+<#
+.SYNOPSIS
+Retrieves the user's selection of software to install from a hashtable of software names and their corresponding Chocolatey package names.
+
+.DESCRIPTION
+This function prompts the user to select one or more software packages from a list and returns their corresponding Chocolatey package names. The available software options are specified as a hashtable with software names as keys and their corresponding Chocolatey package names as values.
+
+.PARAMETER softwareList
+The hashtable of software names and their corresponding Chocolatey package names.
+
+.EXAMPLE
+$softwareList = @{
+"Google Chrome" = "googlechrome";
+"Mozilla Firefox" = "firefox";
+"VLC Media Player" = "vlc";
+"7-Zip" = "7zip";
+"Notepad++" = "notepadplusplus"
+}
+$softwareSelection = Get-SoftwareSelection -softwareList $softwareList
+
+.INPUTS
+Hashtable
+
+.OUTPUTS
+String[] - An array of Chocolatey package names corresponding to the user's software selection.
+
+.NOTES
+The user's input is validated to ensure that it corresponds to a valid selection from the available options. If the user's input is invalid, an error message is displayed and the corresponding option is ignored.
+
+#>
+function Get-SoftwareSelection {
+    param (
+        [hashtable]$softwareList
+    )
+
+    # List of software to install
+    Write-Host "Please select the software you want to install:"
+    
+    # Output software options for the user to choose from
+    $index = 1
+    $indexedSoftwareList = @()
+    foreach ($key in $softwareList.Keys) {
+        Write-Host "$index - $key"
+        $indexedSoftwareList += $softwareList[$key]
+        $index++
+    }
+
+    # Read user input and validate
+    $softwareInput = Read-Host "Enter the number(s) corresponding to the software you want to install (separated by commas)"
+    $softwareSelection = $softwareInput.Split(",") | ForEach-Object {
+        $inputIndex = [int]($_.Trim()) - 1
+        if ($inputIndex -ge 0 -and $inputIndex -lt $indexedSoftwareList.Count) {
+            $indexedSoftwareList[$inputIndex]
+        } else {
+            Write-Host "Invalid selection: $_"
+        }
+    } | Where-Object { $_ }
+    
+    return $softwareSelection
+}
+
+# Function to check if a package is installed using Chocolatey
+function Check-PackageInstalled {
+    param (
+        [string]$packageName
+    )
+
+    $installedPackages = choco list --local-only
+    return ($installedPackages -match $packageName)
+}
+
+# Function to manage software using Chocolatey
+function Manage-Software {
+    param (
+        [string[]]$softwareSelection
+    )
+
+    foreach ($s in $softwareSelection) {
+        if (Check-PackageInstalled -packageName $s) {
+            Write-Host "Uninstalling $s..."
+            choco uninstall $s -y
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Error uninstalling $s"
+            } else {
+                Write-Host "$($softwareList[$s]) uninstalled successfully"
+            }
+        } else {
+            Write-Host "Installing $s..."
+            choco install $s -y
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "Error installing $s"
+            } else {
+                Write-Host "$($softwareList[$s]) installed successfully"
+            }
+        }
+    }
+}
+
+# Function to change the computer name
+function Change-ComputerName {
+    $newName = Read-Host "Enter the new computer name"
+    Rename-Computer -NewName $newName -Force
+    Write-Host "Computer name changed to $newName"
+}
+# Function to install software using Chocolatey
+function Install-Software {
+    param (
+        [string[]]$softwareSelection
+    )
+
+    if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Host "Chocolatey is not installed. Installing Chocolatey..."
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+    }
+
+    foreach ($s in $softwareSelection) {
+        # Install software using Chocolatey
+        choco install $s -y
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Error installing $s"
+        } else {
+            Write-Host "$($softwareList[$s]) installed successfully"
+        }
+    }
+}
+
+# Function to uninstall software using Chocolatey
+function Uninstall-Software {
+    param (
+        [string[]]$softwareSelection
+    )
+
+    foreach ($s in $softwareSelection) {
+        # Uninstall software using Chocolatey
+        choco uninstall $s -y
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Error uninstalling $s"
+        } else {
+            Write-Host "$($softwareList[$s]) uninstalled successfully"
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Displays formatted text on the console.
+
+.DESCRIPTION
+    This function allows you to display text on the console with specified color and style. It uses ANSI escape codes to apply the desired formatting.
+
+.PARAMETER Text
+    The text to be displayed on the console.
+
+.PARAMETER Color
+    The ANSI color code for the text. Default color is 91 (light red).
+
+.PARAMETER Style
+    The ANSI style code for the text. Default style is 1 (bold).
+
+.EXAMPLE
+    Write-HostFormatted -Text "Welcome to the software installation script!" -Color 91 -Style 1
+
+    This example displays the specified text in light red and bold.
+
+.INPUTS
+    [string] Text
+    [int] Color
+    [int] Style
+
+.OUTPUTS
+    None. The function writes directly to the console.
+
+.NOTES
+    The ANSI color and style codes used in this function may not work properly on some older consoles or terminals. Ensure your console or terminal supports ANSI escape codes for the best results.
+#>
+function Write-HostFormatted {
+    param (
+        [string]$Text,
+        [int]$Color = 91, # Default color: Red
+        [int]$Style = 1   # Default style: Bold
+    )
+
+    $formattedText = "$([char]27)[" + $Style.ToString() + ";" + $Color.ToString() + "m" + $Text + "$([char]27)[0m"
+    Write-Host $formattedText
+}
+
+
+# Run-WindowsUpdate
+function Run-WindowsUpdate {
+    Write-Host "Checking for Windows Updates..."
+
+    # Install PSWindowsUpdate module if not already installed
+    if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
+        Install-Module -Name PSWindowsUpdate -Force
+    }
+
+    # Import PSWindowsUpdate module
+    Import-Module PSWindowsUpdate
+
+    # Check for available updates
+    $availableUpdates = Get-WindowsUpdate
+
+    if ($availableUpdates.Count -eq 0) {
+        Write-Host "No updates available"
+        return
+    }
+
+    # Create System Restore Point
+    $restorePointName = "Before Windows Update Installation - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    Write-Host "Creating System Restore Point: $restorePointName"
+    Checkpoint-Computer -Description $restorePointName
+
+    # Install updates
+    Write-Host "Installing available Windows Updates..."
+    $updateCount = $availableUpdates.Count
+    $currentUpdateIndex = 0
+
+    foreach ($update in $availableUpdates) {
+        $currentUpdateIndex++
+        $progressPercentage = ($currentUpdateIndex / $updateCount) * 100
+
+        Write-Progress -Activity "Installing Windows Updates" -Status "Update $currentUpdateIndex of $updateCount" -PercentComplete $progressPercentage
+        Write-Host "Installing update $($update.Title)"
+        Install-WindowsUpdate -KBArticleID $update.KBArticleID -AcceptAll -Verbose
+    }
+
+    # Complete progress bar
+    Write-Progress -Activity "Installing Windows Updates" -Status "Update $currentUpdateIndex of $updateCount" -PercentComplete 100
+
+    # Display completion message
+    Write-Host "Windows Updates installed successfully"
+}
+
+# List of software with their package names
+$softwareList = @{
+    "Chrome" = "googlechrome"
+    "Adobe Reader" = "adobereader"
+    "Discord" = "discord"
+    "WinRAR" = "winrar"
+    "TeamViewer" = "teamviewer"
+    "Brave Browser" = "brave"
+    "Rainmeter" = "rainmeter"
+    "Steam" = "steam"
+    "Epic Games" = "epicgameslauncher"
+    "Origin" = "origin"
+    "GeForce Experience" = "geforceexperience"
+    "Notepad++" = "notepadplusplus"
+    "VLC" = "vlc"
+    "Telegram" = "telegram"
+    "WhatsApp" = "whatsapp"
+    "FileZilla" = "filezilla"
+    "WinSCP" = "winscp"
+    "Daemon Tools Lite" = "daemon-tools-lite"
+    "LibreOffice" = "libreoffice"
+}
+
+# Welcome message
+Write-HostFormatted -Text "Hello Eyad" -Color 91 -Style 1
+
+$exitScript = $false
+
+while (-not $exitScript) {
+    Show-Options
+
+    $choice = Read-Host "Choose an option (1-4) or type 'exit' to quit"
+    $choice = $choice.ToLower()
+
+    switch ($choice) {
+        "1" { Change-ComputerName }
+        "2" { Run-WindowsUpdate }
+    "3" {
+    $softwareSelection = Get-SoftwareSelection -softwareList $softwareList
+    if ($softwareSelection.Count -gt 0) {
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+            Write-Host "Chocolatey is not installed. Installing Chocolatey..."
+            Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+        }
+        Manage-Software -softwareSelection $softwareSelection
+    }
+}
+
+        "4" { Restart-Computer -Force }
+        "exit" { $exitScript = $true } # Update this line
+        default { Write-Host "Invalid choice. Please try again." }
+    }
+}
+<#
+.SYNOPSIS
+This script allows users to manage software and system updates on a Windows computer through a simple menu-based interface.
+
+.DESCRIPTION
+This PowerShell script provides options to change the computer name, run Windows Update, install or uninstall software using Chocolatey, and restart the computer. It offers a user-friendly experience by presenting a list of available options and guiding the user through the process.
+
+.PARAMETER Show-Options
+This function displays the available options to the user, including changing the computer name, running Windows Update, installing or uninstalling software, and restarting the computer.
+
+.NOTES
+- This script requires Chocolatey package manager to be installed on the system.
+- Users must run this script with administrator privileges to perform certain tasks, such as changing the computer name or installing/uninstalling software.
+
+.EXAMPLE
+PS C:> .\Eyad.ps1
+This command runs the script and displays the available options to the user.
+
+.EXAMPLE
+PS C:> .\Eyad.ps1 -Option 2
+This command runs the script and automatically selects the Windows Update option.
+
+.EXAMPLE
+PS C:> .\Eyad.ps1 -Option 3 -Software "Google Chrome"
+This command runs the script and automatically selects the software installation option, then installs Google Chrome using Chocolatey.
+
+#>
+
+#Function to display the available options to the user
+function Show-Options {
+Write-Host "Available options:"
+Write-Host "1 - Change computer name"
+Write-Host "2 - Run Windows Update"
+Write-Host "3 - Install/Uninstall software"
+Write-Host "4 - Restart computer"
+}
+
+<#
+.SYNOPSIS
+Retrieves the user's selection of software to install from a hashtable of software names and their corresponding Chocolatey package names.
+
+.DESCRIPTION
+This function prompts the user to select one or more software packages from a list and returns their corresponding Chocolatey package names. The available software options are specified as a hashtable with software names as keys and their corresponding Chocolatey package names as values.
+
+.PARAMETER softwareList
+The hashtable of software names and their corresponding Chocolatey package names.
+
+.EXAMPLE
+$softwareList = @{
+"Google Chrome" = "googlechrome";
+"Mozilla Firefox" = "firefox";
+"VLC Media Player" = "vlc";
+"7-Zip" = "7zip";
+"Notepad++" = "notepadplusplus"
+}
+$softwareSelection = Get-SoftwareSelection -softwareList $softwareList
+
+.INPUTS
+Hashtable
+
+.OUTPUTS
+String[] - An array of Chocolatey package names corresponding to the user's software selection.
+
+.NOTES
+The user's input is validated to ensure that it corresponds to a valid selection from the available options. If the user's input is invalid, an error message is displayed and the corresponding option is ignored.
+
+#>
+
+# Function to display the available options to the user
+function Show-Options {
+    Write-Output "Available options:"
+    Write-Output "1 - Change computer name"
+    Write-Output "2 - Run Windows Update"
+    Write-Output "3 - Install/Uninstall software"
+    Write-Output "4 - Restart computer"
+}
+
+<#
+.SYNOPSIS
+Retrieves the user's selection of software to install from a hashtable of software names and their corresponding Chocolatey package names.
+
+.DESCRIPTION
+This function prompts the user to select one or more software packages from a list and returns their corresponding Chocolatey package names. The available software options are specified as a hashtable with software names as keys and their corresponding Chocolatey package names as values.
+
+.PARAMETER softwareList
+The hashtable of software names and their corresponding Chocolatey package names.
+
+.EXAMPLE
+$softwareList = @{
+"Google Chrome" = "googlechrome";
+"Mozilla Firefox" = "firefox";
+"VLC Media Player" = "vlc";
+"7-Zip" = "7zip";
+"Notepad++" = "notepadplusplus"
+}
+$softwareSelection = Get-SoftwareSelection -softwareList $softwareList
+
+.INPUTS
+Hashtable
+
+.OUTPUTS
+String[] - An array of Chocolatey package names corresponding to the user's software selection.
+
+.NOTES
+The user's input is validated to ensure that it corresponds to a valid selection from the available options. If the user's input is invalid, an error message is displayed and the corresponding option is ignored.
+
+#>
+function Get-SoftwareSelection {
+    param (
+        [hashtable]$softwareList
+    )
+
+    # List of software to install
+    Write-Host "Please select the software you want to install:"
+    
+    # Output software options for the user to choose from
+    $index = 1
+    $indexedSoftwareList = @()
+    foreach ($key in $softwareList.Keys) {
+        Write-Host "$index - $key"
+        $indexedSoftwareList += $softwareList[$key]
+        $index++
+    }
+
+    # Read user input and validate
+    $softwareInput = Read-Host "Enter the number(s) corresponding to the software you want to install (separated by commas)"
+    $softwareSelection = $softwareInput.Split(",") | ForEach-Object {
+        $inputIndex = [int]($_.Trim()) - 1
+        if ($inputIndex -ge 0 -and $inputIndex -lt $indexedSoftwareList.Count) {
+            $indexedSoftwareList[$inputIndex]
+        } else {
+            Write-Host "Invalid selection: $_"
+        }
+    } | Where-Object { $_ }
+    
+    return $softwareSelection
+}
+
+
+# Function to change the computer name
+function Change-ComputerName {
+    $newName = Read-Host "Enter the new computer name"
+    Rename-Computer -NewName $newName -Force
+    Write-Host "Computer name changed to $newName"
+}
+# Function to install software using Chocolatey
+function Install-Software {
+    param (
+        [string[]]$softwareSelection
+    )
+
+    if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+        Write-Host "Chocolatey is not installed. Installing Chocolatey..."
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+    }
+
+    foreach ($s in $softwareSelection) {
+        # Install software using Chocolatey
+        choco install $s -y
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Error installing $s"
+        } else {
+            Write-Host "$($softwareList[$s]) installed successfully"
+        }
+    }
+}
+
+# Function to uninstall software using Chocolatey
+function Uninstall-Software {
+    param (
+        [string[]]$softwareSelection
+    )
+
+    foreach ($s in $softwareSelection) {
+        # Uninstall software using Chocolatey
+        choco uninstall $s -y
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Error uninstalling $s"
+        } else {
+            Write-Host "$($softwareList[$s]) uninstalled successfully"
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Displays formatted text on the console.
+
+.DESCRIPTION
+    This function allows you to display text on the console with specified color and style. It uses ANSI escape codes to apply the desired formatting.
+
+.PARAMETER Text
+    The text to be displayed on the console.
+
+.PARAMETER Color
+    The ANSI color code for the text. Default color is 91 (light red).
+
+.PARAMETER Style
+    The ANSI style code for the text. Default style is 1 (bold).
+
+.EXAMPLE
+    Write-HostFormatted -Text "Welcome to the software installation script!" -Color 91 -Style 1
+
+    This example displays the specified text in light red and bold.
+
+.INPUTS
+    [string] Text
+    [int] Color
+    [int] Style
+
+.OUTPUTS
+    None. The function writes directly to the console.
+
+.NOTES
+    The ANSI color and style codes used in this function may not work properly on some older consoles or terminals. Ensure your console or terminal supports ANSI escape codes for the best results.
+#>
+function Write-HostFormatted {
+    param (
+        [string]$Text,
+        [int]$Color = 91, # Default color: Red
+        [int]$Style = 1   # Default style: Bold
+    )
+
+    $formattedText = "$([char]27)[" + $Style.ToString() + ";" + $Color.ToString() + "m" + $Text + "$([char]27)[0m"
+    Write-Host $formattedText
+}
+
+
+# Run-WindowsUpdate
+function Run-WindowsUpdate {
+    Write-Host "Checking for Windows Updates..."
+
+    # Install PSWindowsUpdate module if not already installed
+    if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
+        Install-Module -Name PSWindowsUpdate -Force
+    }
+
+    # Import PSWindowsUpdate module
+    Import-Module PSWindowsUpdate
+
+    # Check for available updates
+    $availableUpdates = Get-WindowsUpdate
+
+    if ($availableUpdates.Count -eq 0) {
+        Write-Host "No updates available"
+        return
+    }
+
+    # Create System Restore Point
+    $restorePointName = "Before Windows Update Installation - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    Write-Host "Creating System Restore Point: $restorePointName"
+    Checkpoint-Computer -Description $restorePointName
+
+    # Install updates
+    Write-Host "Installing available Windows Updates..."
+    $updateCount = $availableUpdates.Count
+    $currentUpdateIndex = 0
+
+    foreach ($update in $availableUpdates) {
+        $currentUpdateIndex++
+        $progressPercentage = ($currentUpdateIndex / $updateCount) * 100
+
+        Write-Progress -Activity "Installing Windows Updates" -Status "Update $currentUpdateIndex of $updateCount" -PercentComplete $progressPercentage
+        Write-Host "Installing update $($update.Title)"
+        Install-WindowsUpdate -KBArticleID $update.KBArticleID -AcceptAll -Verbose
+    }
+
+    # Complete progress bar
+    Write-Progress -Activity "Installing Windows Updates" -Status "Update $currentUpdateIndex of $updateCount" -PercentComplete 100
+
+    # Display completion message
+    Write-Host "Windows Updates installed successfully"
+}
+
+# List of software with their package names
+$softwareList = @{
+    "Chrome" = "googlechrome"
+    "Adobe Reader" = "adobereader"
+    "Discord" = "discord"
+    "WinRAR" = "winrar"
+    "TeamViewer" = "teamviewer"
+    "Brave Browser" = "brave"
+    "Rainmeter" = "rainmeter"
+    "Steam" = "steam"
+    "Epic Games" = "epicgameslauncher"
+    "Origin" = "origin"
+    "GeForce Experience" = "geforceexperience"
+    "Notepad++" = "notepadplusplus"
+    "VLC" = "vlc"
+    "Telegram" = "telegram"
+    "WhatsApp" = "whatsapp"
+    "FileZilla" = "filezilla"
+    "WinSCP" = "winscp"
+    "Daemon Tools Lite" = "daemon-tools-lite"
+    "LibreOffice" = "libreoffice"
+}
+
+# Welcome message
+Write-HostFormatted -Text "Hello Eyad" -Color 91 -Style 1
+
+$exitScript = $false
+
+while (-not $exitScript) {
+    Show-Options
+
+    $choice = Read-Host "Choose an option (1-4) or type 'exit' to quit"
+    $choice = $choice.ToLower()
+
+    switch ($choice) {
+        "1" { Change-ComputerName }
+        "2" { Run-WindowsUpdate }
+    "3" {
+    $softwareSelection = Get-SoftwareSelection -softwareList $softwareList
+    if ($softwareSelection.Count -gt 0) {
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+            Write-Host "Chocolatey is not installed. Installing Chocolatey..."
+            Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+        }
+        Manage-Software -softwareSelection $softwareSelection
+    }
+}
+
+        "4" { Restart-Computer -Force }
+        "exit" { $exitScript = $true } # Update this line
+        default { Write-Host "Invalid choice. Please try again." }
+    }
+}
